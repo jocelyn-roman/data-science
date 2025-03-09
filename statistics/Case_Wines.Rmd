@@ -1,0 +1,253 @@
+---
+title: "vivino"
+output: pdf_document
+date: "2025-03-04"
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(dplyr)
+library(ggplot2)
+library(caret)
+library(lmtest)
+# <http://rmarkdown.rstudio.com>.
+```
+
+#1.- **Datos**
+
+```{r data}
+
+df <- read.csv('~/Documents/MaestriaData/Modulo6-estadistica/material/df_wines.csv')
+
+glimpse(df)
+
+```
+
+#2.- **EDA**
+
+```{r eda1, echo=FALSE}
+# Revisar el summary, a lo que vemos todas las columnas tienen el tipo de datos correcto.
+summary(df)
+
+# Cambiar los nombres de las columnas para que usen el mismo formato
+df <- df %>% rename(Year = Year1, WineType = wine_type)
+
+# Revisar los NA
+n_na <- is.na(df)
+table(n_na)
+# Se observa que no hay valores NA.
+
+# Revisar los duplicados
+table(duplicated(df))
+# Se observa que no hay duplicados.
+
+# Mostrar los paises
+table(df$Country)
+# Mostrar los tipos de vino que existen
+table(df$WineType)
+# Mostrar los years
+table(df$Year)
+
+# Histograma de precios para observar la distribución
+ggplot(df, aes(x = Price)) + 
+  geom_histogram(binwidth = 10, fill = "green", color = "gray", alpha = 0.7) +
+  labs(title = "Distribución de Precios de Vinos", x = "Precio", y = "Frecuencia")
+
+# Histograma de años para observar la distribución
+ggplot(df, aes(x = Year)) + 
+  geom_histogram(binwidth = 5, fill = "purple", color = "gray", alpha = 0.7) +
+  labs(title = "Distribución de Años de Vinos", x = "Año", y = "Frecuencia")
+
+# Revisar correlaciones
+df_num <- df %>% 
+  select_if(is.numeric)
+round(cor(x = df_num, method = "pearson"), 3)
+
+#install.packages('corrplot')
+library(corrplot)
+
+matriz_correlacion <- cor(df_num)
+corrplot(matriz_correlacion, type = "full")
+# Se observa que el rating y el precio tienen bastante correlacion
+
+# Comparación de los precios por país
+ggplot(df, aes(x = Country, y = Price)) + 
+  geom_boxplot(fill = "lightblue", color = "black") +
+  theme(axis.text.x = element_text(angle = 90)) +
+  labs(title = "Precios de Vinos por País", x = "País", y = "Precio")
+
+# Comparación de precios por tipo de vino
+ggplot(df, aes(x = WineType, y = Price)) + 
+  geom_boxplot(fill = "lightgreen", color = "black") +
+  labs(title = "Precios de Vinos por Tipo de Vino", x = "Tipo de Vino", y = "Precio")
+
+ggplot(df, aes(y = Year)) + 
+  geom_boxplot(fill = "lightblue", color = "darkblue") +
+  labs(title = "Año de Cosecha", y = "Año") +
+  theme_minimal()
+# Hay unos valores muy diferentes como el 2030 pero estan correctos igual que el 1960.
+
+# Scatter plot para explorar la relación entre la puntuación y el precio
+ggplot(df, aes(x = Rating, y = Price)) + 
+  geom_point(alpha = 0.5, color = "purple") +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  labs(title = "Relación entre Puntuación y Precio", x = "Puntuación", y = "Precio")
+```
+
+#3.- ***Modelo***
+
+##3.1.- ***Train & Test***
+```{r}
+# Establecer una semilla aleatoria para asegurar reproducibilidad al tomar la misma muestra
+set.seed(1234)
+
+t.id <- createDataPartition(df$Price , p = 0.80, list = F)
+
+# separamos en train y test
+
+vino_train <- df[t.id,]
+vino_test <- df[-t.id,]
+
+names(df)
+
+# Escalar variables
+
+x_vino_train <- vino_train %>%
+   mutate(RatingSc = scale(Rating),
+           NumberOfRatingsSc = scale(NumberOfRatings),
+           YearSc = scale(Year),
+           ) %>%
+   select(RatingSc,NumberOfRatingsSc,YearSc, WineType, Region)
+
+y_vino_train <- vino_train$Price
+
+# comprobamos que la mean de todas las variables es 0.
+t(summary(x_vino_train))
+
+# test
+x_vino_test <- vino_test %>%
+   mutate(RatingSc = scale(Rating),
+           NumberOfRatingsSc = scale(NumberOfRatings),
+           YearSc = scale(Year),
+           ) %>%
+   select(RatingSc,NumberOfRatingsSc,YearSc, WineType, Region)
+y_vino_test <- vino_test$Price
+
+t(summary(x_vino_test))
+```
+
+##3.2.- ***Modelo***
+```{r}
+
+mod <- lm(y_vino_train ~ ., data = x_vino_train)
+print(mod)
+summary(mod)
+#Se observa que la region no aporta informacion por su p-value es mayor a 0.05
+# El rating si aporta valor, igual que el Number of rating, year y el wineType
+
+
+# Volvemos a hacer la regresion lineal sin las regiones.
+x_vino_train <- vino_train %>%
+   mutate(RatingSc = scale(Rating),
+           NumberOfRatingsSc = scale(NumberOfRatings),
+           YearSc = scale(Year),
+           ) %>%
+   select(RatingSc,NumberOfRatingsSc,YearSc, WineType)
+
+x_vino_test <- vino_test %>%
+   mutate(RatingSc = scale(Rating),
+           NumberOfRatingsSc = scale(NumberOfRatings),
+           YearSc = scale(Year),
+           ) %>%
+   select(RatingSc,NumberOfRatingsSc,YearSc, WineType)
+
+mod <- lm(y_vino_train ~ ., data = x_vino_train)
+print(mod)
+summary(mod)
+# El R cuadrado es 0.46311 por lo tanto el modelo no es tan bueno como deberia.
+
+# Boxplot de los valores residuales, se observa que hay bastantes valores atipicos muy altos.
+boxplot(mod$residuals)
+summary(residuals(mod))
+
+# Evaluamos el modelo RMSR
+sqrt(mean((mod$fitted.values - y_vino_train)^2))
+
+# Predicción sobre test
+pred <- predict(mod, x_vino_test)
+sqrt(mean((pred - y_vino_test)^2))
+
+# Graficos del modelo
+par(mfrow=c(1,1))
+plot(mod)
+# Residuals vs fitted(ajustados). Se observa que no es una relacion muy lineal, ya que tienen como una curva.
+# Normal Q-Q: Se ve que se acercan a la recta excepto en valores muy grandes que ya estan muy alejados de la recta.
+# Scale-Location: no se ven muy bien distribuidos 
+# Residuals vs Leverage : la mayoria de datos estan a la izquierda 
+```
+
+#4.- ***ANOVA***
+```{r}
+# Análisis de Varianza (ANOVA) para comparar precios de vinos
+#H0= medias son iguales (p<0.05 H0 se rechaza)
+#H1= medias no son iguales (p>0.05 H0 se acepta)
+# convertimos la variable WineType a factor
+df$WineType <- as.factor(df$WineType)
+
+anova_result <- aov(df$Price ~ df$WineType)
+summary(anova_result)
+plot(anova_result)
+# Se rechaza la hipotesis nula, las medias no son iguales.
+```
+
+##4.1 ***Tukey***
+```{r}
+# compara por pares de vinos y comprueba
+# H0= La media del vino a es igual a la media del vino b (p<0.05 se rechza H0)
+# H1= La media del vino a no es igual a la media del vino b (p>0.05 se acepta H0)
+# TukeyHSD(anova)
+
+# Se rechaza la hipotesis nula
+TukeyHSD(anova_result)
+
+df %>%
+  group_by(WineType) %>%
+  summarise(avg_re = mean(Price))
+
+plot(tukey_result)
+
+ggplot(df, aes(x = WineType, y = Price)) + 
+  geom_boxplot(fill = "lightgreen", color = "black") +
+  labs(title = "Precios de Vinos por Tipo de Vino", x = "Tipo de Vino", y = "Precio")
+
+```
+
+#5 ***CONCLUSIONES***
+
+La variable dependiente es el precio.
+
+Primero se hace un analisis exploratorio de los datos en donde se revisa el tipo de datos de cada columna. Se renombra las columnas Year1 y wine_type por Year y WineType para que sigan el formato de los nombres de las otras columnas.En este mismo paso se revisan los NA's y duplicados. Se muestra un histograma de la distribucion de precios de los vinos y otro histograma con la districion de vinos por año, con esta podemos observar que la mayoria de vinos pertenecen a años superiores al 2000.
+
+Luego se revisan las correlaciones con los datos numericos y se muestra una matriz de correlacion. En este se observa que el precio esta relacionado con el rating y con el año. Luego, mostramos unos boxplots de los precios de vino por pais, los cuales tienen mucha variabilidad y sus medias son muy diferentes unas a otras. Tambien mostramos un boxplot de los precios de vinos por tipo de vino, en este se observa que hay bastantes valores fuera de lo comun y que no se encuentran en la media, para todos los tipos de vino, y que el tamaño de la caja del boxplot es mas grande en ciertos tipos que otros. En el boxplot de vinos por año de cosecha se observan que hay varios valores atipicos tanto altos como bajos como el año 2030 y 1960.
+
+En el paso de crear el modelo separamos el conjunto de datos entre train y test a los cuales le damos un 80% de datos a train y un 20% de datos a test. Escalamos las columnas de Rating, NumberOfRatings, Year. Y verificamos que su mean sea 0 para todas estas variables. 
+Creamos la variable x_vino_train con los datos de RatingSc,NumberOfRatingsSc,YearSc, WineType, Region. Creamos el modelo con x_vino_train, observamos que la region no aporta informacion por su p-value es mayor a 0.05 en la mayoria de ellos. Por lo cual al existir tantas regiones y que no aporta informacion a la variable dependiente de precio, volvemos a editar la variable x_vino_train y eliminamos la region, usando solamente los datos de RatingSc,NumberOfRatingsSc,YearSc, WineType. 
+
+Creamos de nuevo la regresion lineal multiple usando solamente los datos de RatingSc,NumberOfRatingsSc,YearSc, WineType. En el summary del modelo podemos observar que en los coeficientes se rechaza NumberOfRatingsSc porque su p-value es mayor a 0.05, no aporta informacion al estudio del precio. Y los coeficientes de RatingSc, YearSc, y WineType si ayuda al modelo a explicar la informacion del precio. El R cuadrado es 0.4631 por lo tanto el modelo no es tan bueno como deberia, porque un buen modelo deberia de estar entre 0.75. Revisamos que la media de los residuos sea 0.
+
+Mostramos los siguientes graficos:
+
+Residuals vs fitted(ajustados). Se observa la relacion entre los residuos y los valores predichos, los cuales no siguen una relacion lineal a como deberia, sino que en este caso tiene una curva.
+Normal Q-Q: Los puntos del medio se asemejan a la recta, pero los del final estan bastantes alejados de la recta.
+Scale-Location: se observa la dispersion, en este caso no hay mucha dispersion todos estan muy agrupados y  no se ven muy bien distribuidos. 
+Residuals vs Leverage: la mayoria de datos estan a la izquierda, son muy pocos los que estan alejados, por lo tanto la prediccion del modelo es decente.
+
+Se hace un Análisis de Varianza (ANOVA) para comparar precios de vinos: vamos a contrastrar si las medias de los diferentes tipos son iguales con la hipotesis nula, y la hipotesis alternativa es si al menos una es diferente. 
+Primero convertimos la variable WineType a factor. Como el p valor es casi cero se rechaza la hipotesis nula de que las medias son iguales. Efectivamente hay diferencias.
+
+Tukey: Lo usamos para hacer la comparativa de pares de los tipos de vinos. Para espumoso-blanco, rosado-blanco,tinto-blanco, rosado-espumoso, tinto-rosado  se rechaza la hipotesis nula las medias son diferentes. Para tinto-espumoso no se puede rechazar la hipotesis nula porque el p-value es mayor a 0.05. El vino tinto y el espumoso son los unicos que tienen medias muy parecidas, los demas tienen medias muy diferentes.
+
+
